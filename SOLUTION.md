@@ -88,7 +88,7 @@ While this issue doesn't directly cause the current bug (since the resolver retu
 
 ### Step 1: Reproduce the bug in the browser
 
-I opened `https://betastudent.beetroot.academy` and logged in with the test credentials (`testcandidate@test.com`). Login succeeded — the student's name ("TEST CANDIDATE") appeared in the UI header, confirming authentication works. However, the dashboard displayed a "no courses" modal instead of course cards, exactly as described in the bug report.
+I opened `https://betastudent.beetroot.academy` and logged in with the test credentials (`testcandidate@test.com`). Login succeeded — my courses and profile settings appeared in the UI header, confirming authentication works. However, the dashboard displayed a "You don't have any courses yet" instead of course cards, exactly as described in the bug report.
 
 ### Step 2: Inspect the network traffic in DevTools
 
@@ -103,6 +103,7 @@ authorization: Bearer eyJhbGciOiJIUzI1NiIs...0goGgqSvBxIIwRixuG6LWZWT-rxs3joKCaD
 userrole: ROLE_STUDENT
 content-type: application/json
 ```
+
 ```json
 {
   "operationName": "getStudentNotifications",
@@ -110,6 +111,7 @@ content-type: application/json
   "query": "query getStudentNotifications { getStudentNotifications { id createdAt type title text isRead isNew ... } }"
 }
 ```
+
 Response: `{"data":{"getStudentNotifications":[]}}` — HTTP 200, empty but valid.
 
 **Request 2 — `getMyCourses` (the broken one):**
@@ -121,6 +123,7 @@ authorization: Bearer eyJhbGciOiJIUzI1NiIs...0goGgqSvBxIIwRixuG6LWZWT-rxs3joKCaD
 userrole: ROLE_STUDENT
 content-type: application/json
 ```
+
 ```json
 {
   "operationName": "getMyCourses",
@@ -128,6 +131,7 @@ content-type: application/json
   "query": "query getMyCourses { getMyCoursesV2 { id user { id email userName ... } status { id name } group { id groupStatus startDate course { ... } teachers { ... } groupCourse { ... } students { groupEntryTests { ... } groupStudentJournals { ... } } } ... } }"
 }
 ```
+
 Response: `{"data":{"getMyCoursesV2":[]}}` — HTTP 200, **no GraphQL errors**, just an empty array.
 
 Key observation: `"variables": {}` — **the frontend sends no arguments at all** to `getMyCoursesV2`. The `Authorization` header carries the JWT, so the backend is expected to identify the user server-side.
@@ -147,7 +151,7 @@ No snackbar/toast notifications were shown to the user. No network errors, no Gr
 I decoded the JWT from the `Authorization` header in DevTools Console:
 
 ```js
-JSON.parse(atob(localStorage.getItem('vtoken').split('.')[1]))
+JSON.parse(atob(localStorage.getItem('vtoken').split('.')[1]));
 ```
 
 Result:
@@ -162,8 +166,8 @@ Result:
     "userName": "TEST CANDIDATE",
     "email": "testcandidate@test.com",
     "activated": true,
-    "roles": [{"name": "ROLE_STUDENT"}],
-    "countryCode": {"name": "UA"}
+    "roles": [{ "name": "ROLE_STUDENT" }],
+    "countryCode": { "name": "UA" }
   },
   "iat": 1773315753,
   "exp": 1774525353
@@ -197,17 +201,24 @@ fetch('https://betastudent.beetroot.academy:4000/', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${localStorage.getItem('vtoken')}`
+    Authorization: `Bearer ${localStorage.getItem('vtoken')}`
   },
   body: JSON.stringify({
     query: '{ getMyCoursesV2(userId: "cmm8v76n96hpp0834hnz92nsd") { id } }'
   })
-}).then(r => r.json()).then(console.log);
+})
+  .then(r => r.json())
+  .then(console.log);
 ```
 
 Response:
+
 ```json
-{"errors":[{"message":"Unknown argument \"userId\" on field \"getMyCoursesV2\" of type \"Query\"."}]}
+{
+  "errors": [
+    { "message": "Unknown argument \"userId\" on field \"getMyCoursesV2\" of type \"Query\"." }
+  ]
+}
 ```
 
 This confirms: the resolver code reads `args.userId`, but the GraphQL schema doesn't define `userId` as an argument for `getMyCoursesV2`. The `args` object will always be empty, making `userId` always `''`. The resolver was changed (likely in last Thursday's deployment) to use `args.userId` instead of `getUser(ctx)`, breaking the query for all students.
